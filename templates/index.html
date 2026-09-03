@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Motorcycle Route Planner</title>
+    <link rel="preconnect" href="https://unpkg.com">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <main class="shell">
+        <section class="side-panel">
+            <header>
+                <h1>Motorcycle route planner</h1>
+            </header>
+
+            <section class="point-box" aria-label="Selected points">
+                <div>
+                    <span class="dot start-dot"></span>
+                    <strong>Start</strong>
+                    <span id="startText">Not selected</span>
+                    <button id="startPick" class="pick-button" type="button">Set</button>
+                </div>
+                <div>
+                    <span class="dot target-dot"></span>
+                    <strong>Destination</strong>
+                    <span id="targetText">Not selected</span>
+                    <button id="targetPick" class="pick-button" type="button">Set</button>
+                </div>
+                <button id="clearButton" class="text-button" type="button">Clear points</button>
+            </section>
+
+            <form id="routeForm">
+                <label>
+                    <span>Maximum detour <output id="detourOutput">35%</output></span>
+                    <input id="detour" type="range" min="0" max="60" step="5" value="35">
+                </label>
+                <label>
+                    <span>Prefer bends <output id="curveOutput">70</output></span>
+                    <input id="curve" type="range" min="0" max="100" step="5" value="70">
+                </label>
+                <label>
+                    <span>Prefer hills <output id="hillOutput">45</output></span>
+                    <input id="hill" type="range" min="0" max="100" step="5" value="45">
+                </label>
+                <label>
+                    <span>Avoid major roads <output id="roadOutput">75</output></span>
+                    <input id="road" type="range" min="0" max="100" step="5" value="75">
+                </label>
+                <label>
+                    <span>Avoid towns <output id="townOutput">30</output></span>
+                    <input id="town" type="range" min="0" max="100" step="5" value="30">
+                </label>
+                <label class="check-row">
+                    <input id="motorways" type="checkbox">
+                    <span>No motorways (hard rule)</span>
+                </label>
+                <button id="generateButton" class="primary-button" type="submit">Find routes</button>
+            </form>
+
+            <div id="errorBox" class="error hidden" role="alert"></div>
+            <section id="routeCards" class="route-cards" aria-live="polite"></section>
+        </section>
+        <section class="map-wrap">
+            <div id="map" aria-label="Route map"></div>
+            <div id="mapHelp" class="map-help">choose which point to set</div>
+        </section>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
