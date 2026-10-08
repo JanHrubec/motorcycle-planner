@@ -1,13 +1,10 @@
-from __future__ import annotations
-
-from dataclasses import replace
 from xml.etree import ElementTree
 
 import pytest
 
 from app import create_app
 from route_planner.gpx import make_gpx
-from route_planner.service import RequestError, RouteService, load_graph
+from route_planner.service import RequestError, RouteService
 
 
 def valid_request():
@@ -26,7 +23,6 @@ def valid_request():
 def test_service_returns_serialized_routes(choice_graph):
     result = RouteService(choice_graph).route(valid_request())
     assert len(result["routes"]) == 2
-    assert "name" not in result["routes"][0]
     assert result["routes"][0]["stats"]["eta_minutes"] == 10
     assert result["routes"][1]["stats"]["detour_percent"] == 20
     assert result["snapped"]["start"]["id"] == 0
@@ -52,23 +48,19 @@ def test_boolean_setting_is_validated(choice_graph):
     with pytest.raises(RequestError, match="true or false"):
         RouteService(choice_graph).route(request)
 
-def test_detour_accepts_sixty(choice_graph):
+def test_detour_range(choice_graph):
     request = valid_request()
+    service = RouteService(choice_graph)
     request["detour_percent"] = 60
-    result = RouteService(choice_graph).route(request)
-    assert result["settings"]["detour_percent"] == 60
-
-
-def test_detour_rejects_more_than_sixty(choice_graph):
-    request = valid_request()
+    assert service.route(request)["settings"]["detour_percent"] == 60
     request["detour_percent"] = 65
     with pytest.raises(RequestError, match="between 0 and 60"):
-        RouteService(choice_graph).route(request)
+        service.route(request)
 
 
 def test_motorway_filter_gives_a_recovery_hint(choice_graph):
-    for edge_id, edge in list(choice_graph.edges.items()):
-        choice_graph.edges[edge_id] = replace(edge, motorway=True)
+    for edge in choice_graph.edges.values():
+        edge.motorway = True
     request = valid_request()
     request["avoid_motorways"] = True
     with pytest.raises(RequestError, match="Turn off No motorways"):
@@ -77,7 +69,6 @@ def test_motorway_filter_gives_a_recovery_hint(choice_graph):
 
 def test_api_and_gpx_download(choice_graph):
     app = create_app(RouteService(choice_graph))
-    app.config.update(TESTING=True)
     client = app.test_client()
     response = client.post("/api/routes", json=valid_request())
     assert response.status_code == 200

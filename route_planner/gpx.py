@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 
-def make_gpx(coordinates: list[tuple[float, float]], name: str) -> bytes:
+def make_gpx(coordinates, name):
     if len(coordinates) < 2:
         raise ValueError("A GPX track needs at least two coordinates")
 

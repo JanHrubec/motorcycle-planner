@@ -1,11 +1,10 @@
 import heapq
-from dataclasses import dataclass, field, replace
+from copy import copy
 from itertools import count
 from math import inf
 from time import perf_counter
 
 from .geo import haversine_km
-from .graph import Edge, RoadGraph
 
 ROAD_PENALTIES = {
     "motorway": 1.0,
@@ -25,49 +24,94 @@ DOMINANCE_MARGIN = 0.015
 MAX_DETOUR = 60
 
 
-@dataclass(frozen=True, slots=True)
 class RouteSettings:
-    detour_percent: float = 35.0
-    curve_preference: float = 70.0
-    hill_preference: float = 45.0
-    road_preference: float = 75.0
-    town_preference: float = 30.0
-    avoid_motorways: bool = False
+    __slots__ = (
+        "detour_percent",
+        "curve_preference",
+        "hill_preference",
+        "road_preference",
+        "town_preference",
+        "avoid_motorways",
+    )
+
+    def __init__(
+        self,
+        detour_percent=35.0,
+        curve_preference=70.0,
+        hill_preference=45.0,
+        road_preference=75.0,
+        town_preference=30.0,
+        avoid_motorways=False,
+    ):
+        self.detour_percent = detour_percent
+        self.curve_preference = curve_preference
+        self.hill_preference = hill_preference
+        self.road_preference = road_preference
+        self.town_preference = town_preference
+        self.avoid_motorways = avoid_motorways
 
 
-@dataclass(slots=True)
 class Label:
-    node: int
-    eta: float
-    penalty: float
-    previous: int | None
-    edge_id: int | None
-    active: bool = True
+    # one path to a node
+    __slots__ = ('node', 'eta', 'penalty', 'previous', 'edge_id', 'active')
+
+    def __init__(self, node, eta, penalty, previous, edge_id, active=True):
+        self.node = node
+        self.eta = eta
+        self.penalty = penalty
+        self.previous = previous
+        self.edge_id = edge_id
+        self.active = active
 
 
-@dataclass(slots=True)
 class Route:
-    edge_ids: list[int]
-    eta_minutes: float
-    penalty: float
-    distance_km: float = 0
-    twistiness: float = 0
-    hilliness: float = 0
-    elevation_gain_m: float = 0
-    major_road_percent: float = 0
-    town_road_percent: float = 0
-    coordinates: list[tuple[float, float]] = field(default_factory=list)
+    __slots__ = (
+        "edge_ids",
+        "eta_minutes",
+        "penalty",
+        "distance_km",
+        "twistiness",
+        "hilliness",
+        "elevation_gain_m",
+        "major_road_percent",
+        "town_road_percent",
+        "coordinates",
+    )
+
+    def __init__(
+        self,
+        edge_ids,
+        eta_minutes,
+        penalty,
+        distance_km=0,
+        twistiness=0,
+        hilliness=0,
+        elevation_gain_m=0,
+        major_road_percent=0,
+        town_road_percent=0,
+        coordinates=None,
+    ):
+        self.edge_ids = edge_ids
+        self.eta_minutes = eta_minutes
+        self.penalty = penalty
+        self.distance_km = distance_km
+        self.twistiness = twistiness
+        self.hilliness = hilliness
+        self.elevation_gain_m = elevation_gain_m
+        self.major_road_percent = major_road_percent
+        self.town_road_percent = town_road_percent
+        self.coordinates = [] if coordinates is None else coordinates
 
 
 class Router:
-    def __init__(self, graph: RoadGraph) -> None:
+    def __init__(self, graph):
         self.graph = graph
 
     def _time_heuristic(self, node_id, target_id):
         node = self.graph.nodes[node_id]
         target = self.graph.nodes[target_id]
         distance = haversine_km(node.lat, node.lon, target.lat, target.lon)
-        # straight distance at the graph's fastest speed
+        # optimistic remaining time
         return distance / self.graph.max_speed_kmh * 60
 
     def _can_use(self, edge, settings):
@@ -79,19 +123,20 @@ class Router:
         hill = max(0.0, min(1.0, edge.hill_score))
         town = 1.0 if edge.road_class in TOWN_CLASSES else 0.0
 
-        bad = 1 + (
+        road_factor = 1 + (
             settings.road_preference / 100 * 3 * road
             + settings.town_preference / 100 * 2 * town
         )
-        good = 1 + (
+        scenery_factor = 1 + (
             settings.curve_preference / 100 * 3 * curve
             + settings.hill_preference / 100 * 3 * hill
         )
-        return edge.distance_km * bad / good
+        # lower penalty means a better match
+        return edge.distance_km * road_factor / scenery_factor
 
-    def fastest_path(self, start, target, settings) -> tuple[list[int], float, dict] | None:
+    def fastest_path(self, start, target, settings):
         queue = []
-        serial = count()
+        serial = count()  # breaks queue ties
         h_cache = {}
 
         def heuristic(node_id):
@@ -106,6 +151,7 @@ class Router:
 
         while queue:
             _, current_eta, _, node = heapq.heappop(queue)
+            # a faster path may have replaced this entry
             if current_eta != best.get(node):
                 continue
             if node == target:
@@ -132,7 +178,7 @@ class Router:
 
     @staticmethod
     def _dominates(old, eta, penalty):
-        # labels this close are not worth exploring twice
+        # allow a 1.5% margin to shrink the search
         return (
             old.eta <= eta * (1 + DOMINANCE_MARGIN)
             and old.penalty <= penalty * (1 + DOMINANCE_MARGIN)
@@ -149,7 +195,7 @@ class Router:
         while len(label_ids) > LABEL_LIMIT:
             ordered = sorted(label_ids, key=lambda item: labels[item].eta)
             lowest_penalty = min(ordered, key=lambda item: labels[item].penalty)
-            # keep both ends of the trade-off
+            # keep fastest and lowest penalty
             protected = {ordered[0], lowest_penalty}
             eta_span = max(labels[ordered[-1]].eta - labels[ordered[0]].eta, 1e-9)
             costs = [labels[item].penalty for item in ordered]
@@ -163,6 +209,7 @@ class Router:
                     continue
                 before = labels[ordered[index - 1]]
                 after = labels[ordered[index + 1]]
+                # remove crowded choices first
                 gap = (after.eta - before.eta) / eta_span
                 gap += abs(after.penalty - before.penalty) / cost_span
                 if gap < smallest_gap:
@@ -170,7 +217,10 @@ class Router:
                     remove_id = label_id
 
             if remove_id is None:
-                remove_id = next(item for item in ordered if item not in protected)
+                for item in ordered:
+                    if item not in protected:
+                        remove_id = item
+                        break
             labels[remove_id].active = False
             label_ids.remove(remove_id)
             removed += 1
@@ -182,7 +232,8 @@ class Router:
         if fastest_result is None:
             reason = "no_path"
             if settings.avoid_motorways:
-                relaxed = replace(settings, avoid_motorways=False)
+                relaxed = copy(settings)
+                relaxed.avoid_motorways = False
                 if self.fastest_path(start, target, relaxed) is not None:
                     reason = "motorway_filter"
             return [], {
@@ -191,7 +242,7 @@ class Router:
             }
 
         fastest_edges, fastest_eta, fastest_debug = fastest_result
-        # detour belongs here only: it never rewards wasting the whole allowance
+        # detour limits travel time
         eta_limit = fastest_eta * (1 + settings.detour_percent / 100)
         fastest_penalty = sum(
             self.edge_penalty(self.graph.edges[item], settings)
@@ -247,8 +298,8 @@ class Router:
                 for item in labels_here.get(target, ())
                 if labels[item].active
             ]
+            # stop if a finished route is already better
             lower_eta = label.eta + heuristic(label.node)
-            # a completed label can stop a worse unfinished one
             if any(
                 item.eta <= lower_eta and item.penalty <= label.penalty
                 for item in finished
@@ -262,6 +313,7 @@ class Router:
                 if not self._can_use(edge, settings):
                     continue
                 eta = label.eta + edge.eta_minutes
+                # even the optimistic time must fit
                 if eta + heuristic(edge.target) > eta_limit + 1e-9:
                     over_limit += 1
                     continue
@@ -279,7 +331,7 @@ class Router:
                         node_labels.remove(old_id)
                         dominance_removed += 1
 
-                # parents stay in the list so a route can be rebuilt afterwards
+                # keep parents for rebuilding paths
                 new_id = len(labels)
                 new_label = Label(edge.target, eta, penalty, label_id, edge.id)
                 labels.append(new_label)
@@ -296,11 +348,11 @@ class Router:
         target_ids = [
             item for item in labels_here.get(target, ()) if labels[item].active
         ]
-        candidates = [
-            Route(self._reconstruct_label(labels, label_id),
-                  labels[label_id].eta, labels[label_id].penalty)
-            for label_id in target_ids
-        ]
+        candidates = []
+        for label_id in target_ids:
+            label = labels[label_id]
+            edge_ids = self._reconstruct_label(labels, label_id)
+            candidates.append(Route(edge_ids, label.eta, label.penalty))
         candidates.append(fastest_route)
         candidates = self._deduplicate(candidates)
         for route in candidates:
@@ -325,7 +377,7 @@ class Router:
     @staticmethod
     def _reconstruct_label(labels, label_id):
         edges = []
-        # following integer ids is cheaper than copying a path into every label
+        # walk back from the destination
         while labels[label_id].previous is not None:
             edge_id = labels[label_id].edge_id
             if edge_id is None:
@@ -350,6 +402,7 @@ class Router:
         route.distance_km = sum(edge.distance_km for edge in edges)
         route.eta_minutes = sum(edge.eta_minutes for edge in edges)
         if route.distance_km:
+            # weight scores by road length
             route.twistiness = (
                 sum(edge.curve_score * edge.distance_km for edge in edges)
                 / route.distance_km * 100
@@ -380,7 +433,7 @@ class Router:
             if not coordinates:
                 coordinates.extend(geometry)
             elif coordinates[-1] == geometry[0]:
-                coordinates.extend(geometry[1:])
+                coordinates.extend(geometry[1:])  # skip shared endpoint
             else:
                 raise ValueError(f"Route is not continuous at edge {edge_id}")
         return coordinates
@@ -388,7 +441,7 @@ class Router:
     def route_overlap(self, first, second):
         first_roads = {}
         second_roads = {}
-        # physical ids also catch the same segment travelled in reverse
+        # count both directions as one road
         for edge_id in first.edge_ids:
             edge = self.graph.edges[edge_id]
             first_roads.setdefault(edge.physical_id, edge.distance_km)
@@ -403,7 +456,7 @@ class Router:
 
     def route_separation(self, first, second):
         def sample(points):
-            # seventy points is enough for this rough shape check
+            # sample points to keep this quick
             step = max(1, len(points) // 70)
             picked = points[::step]
             if picked[-1] != points[-1]:
@@ -414,14 +467,14 @@ class Router:
         second_points = sample(second.coordinates)
 
         def furthest(points, other):
-            answer = 0.0
+            greatest_distance = 0.0
             for lat, lon in points:
                 nearest = min(
                     haversine_km(lat, lon, lat2, lon2)
                     for lat2, lon2 in other
                 )
-                answer = max(answer, nearest)
-            return answer
+                greatest_distance = max(greatest_distance, nearest)
+            return greatest_distance
 
         return max(
             furthest(first_points, second_points),
@@ -438,6 +491,7 @@ class Router:
         if not candidates:
             return []
         fastest = min(candidates, key=lambda route: route.eta_minutes)
+        # compare penalty per km
         fastest_quality = fastest.penalty / fastest.distance_km
         options = []
         for route in candidates:
@@ -448,24 +502,24 @@ class Router:
                 options.append(route)
 
         options.sort(key=lambda route: route.eta_minutes)
-        different = [
-            [
-                self.meaningfully_different(first, second)
-                for second in options
-            ]
-            for first in options
-        ]
+        compatible = []
+        for first in options:
+            row = []
+            for second in options:
+                row.append(self.meaningfully_different(first, second))
+            compatible.append(row)
         best = []
 
-        # the completed set is small, so find the largest compatible subset
+        # try keeping and skipping each alternative
         def pick(index, chosen):
             nonlocal best
+            # this branch cannot beat the best set
             if len(chosen) + len(options) - index <= len(best):
                 return
             if index == len(options):
                 best = chosen.copy()
                 return
-            if all(different[index][old] for old in chosen):
+            if all(compatible[index][old] for old in chosen):
                 chosen.append(index)
                 pick(index + 1, chosen)
                 chosen.pop()

@@ -31,6 +31,7 @@ class ElevationTiles:
         else:
             return None
 
+        # square grid, two bytes per height
         side = isqrt(len(data) // 2)
         if side * side * 2 != len(data):
             raise ValueError(f"{name} is not a square HGT tile")
@@ -45,10 +46,12 @@ class ElevationTiles:
         data, side = tile
         bottom = floor(lat)
         left = floor(lon)
+        # rows start at the north edge
         row = round((bottom + 1 - lat) * (side - 1))
         column = round((lon - left) * (side - 1))
         row = min(side - 1, max(0, row))
         column = min(side - 1, max(0, column))
-        # hgt heights are signed big-endian
+        # signed big-endian heights
         height = struct.unpack_from(">h", data, (row * side + column) * 2)[0]
+        # -32768 means missing data
         return None if height == -32768 else float(height)

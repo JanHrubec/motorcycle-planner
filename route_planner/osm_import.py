@@ -40,6 +40,7 @@ UNPAVED_SURFACES = {
     "compacted",
 }
 
+# estimated riding speeds, not legal limits
 ROAD_SPEEDS = {
     "motorway": 90,
     "motorway_link": 45,
@@ -74,7 +75,7 @@ HILL_WINDOW_KM = 0.15
 
 
 def motorcycle_allowed(tags):
-    # use the most specific access tag
+    # specific access tags come first
     for key in ("motorcycle", "motor_vehicle", "vehicle", "access"):
         value = tags.get(key)
         if value:
@@ -102,7 +103,6 @@ def legal_speed(tags, highway):
     if speed is not None:
         return speed
 
-    # some ways store the legal context separately from maxspeed
     for key in ("maxspeed:type", "source:maxspeed", "zone:traffic"):
         speed = parse_speed(tags.get(key))
         if speed is not None:
@@ -123,24 +123,24 @@ def legal_speed(tags, highway):
 
 def road_speed(tags, highway):
     limit = legal_speed(tags, highway)
-    # use the road estimate unless a lower limit is posted
+    # never exceed the speed limit
     return min(limit, float(ROAD_SPEEDS[highway]))
 
 
 def segment_curve(points, index, distance_km):
-    # use the bends touching this short osm segment
+    # bends at both ends of the segment
     changes = []
     if index > 0:
         first = bearing_degrees(*points[index - 1], *points[index])
         second = bearing_degrees(*points[index], *points[index + 1])
         change = bearing_change(first, second)
-        if change >= 5:
+        if change >= 5:  # ignore tiny direction changes
             changes.append(min(change, 120))
     if index + 2 < len(points):
         first = bearing_degrees(*points[index], *points[index + 1])
         second = bearing_degrees(*points[index + 1], *points[index + 2])
         change = bearing_change(first, second)
-        if change >= 5:
+        if change >= 5:  # ignore tiny direction changes
             changes.append(min(change, 120))
     if not changes:
         return 0.0
@@ -152,7 +152,7 @@ def road_hills(points, distances, terrain):
     if terrain is None:
         return [None] * len(points), [0.0] * len(distances)
 
-    # a window is steadier than slopes on very short osm edges
+    # nearby heights reduce noise
     heights = [terrain.at(*point) for point in points]
     along = [0.0]
     for distance in distances:
@@ -174,7 +174,7 @@ def road_hills(points, distances, terrain):
         rise = max(levels) - min(levels)
         distance = along[right] - along[left]
         grade = rise / max(distance * 1000, 120)
-        hills.append(min(1.0, grade / 0.08))
+        hills.append(min(1.0, grade / 0.08))  # 8% grade gives full score
     return heights, hills
 
 
@@ -224,6 +224,7 @@ class RoadHandler(osmium.SimpleHandler):
         self.fastest_speed = max(self.fastest_speed, speed)
         one_way_value = (way.tags.get("oneway") or "").lower()
         is_roundabout = way.tags.get("junction") == "roundabout"
+        # -1 means reverse only
         reverse_only = one_way_value == "-1"
         one_way = one_way_value in {"yes", "1", "true"} or is_roundabout or reverse_only
         road_class = highway.removesuffix("_link")
@@ -244,7 +245,7 @@ class RoadHandler(osmium.SimpleHandler):
                 continue
             curve = segment_curve(points, index, distance)
             eta = distance / speed * 60
-            physical_id = f"{way.id}:{index}"
+            physical_id = f"{way.id}:{index}"  # shared by both directions
             first_height = heights[index]
             second_height = heights[index + 1]
             height_change = 0.0
@@ -260,6 +261,7 @@ class RoadHandler(osmium.SimpleHandler):
                     distance, eta, road_class, curve, hill, height_change, physical_id,
                     limit, speed,
                 )
+            # reverse travel also reverses the height change
             if backward:
                 self._add_edge(
                     refs[index + 1], refs[index], points[index + 1], points[index],
@@ -268,7 +270,10 @@ class RoadHandler(osmium.SimpleHandler):
                 )
         self.counts["ways_retained"] += 1
 
-    def _add_edge(self, source, target, first, second, distance, eta, road_class, curve, hill, height_change, physical_id, speed_limit, travel_speed):
+    def _add_edge(
+        self, source, target, first, second, distance, eta, road_class,
+        curve, hill, height_change, physical_id, speed_limit, travel_speed,
+    ):
         self.graph.add_edge(
             Edge(
                 id=self.next_edge_id,
@@ -291,7 +296,7 @@ class RoadHandler(osmium.SimpleHandler):
         self.counts["directed_edges"] += 1
 
 
-def import_pbf(input_path, output_path, elevation_dir = None):
+def import_pbf(input_path, output_path, elevation_dir=None):
     input_file = Path(input_path)
     output_file = Path(output_path)
     if not input_file.exists():

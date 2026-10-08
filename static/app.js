@@ -62,16 +62,21 @@ function choosePoint(which) {
     byId("targetPick").classList.toggle("active", which === "target");
     byId("map").classList.toggle("picking", which !== null);
     byId("mapHelp").textContent = which
-        ? `click the map to set ${which}`
-        : "choose which point to set";
+        ? `Click the map to set ${which === "start" ? "the start" : "the destination"}`
+        : "Click Set to choose a start or destination";
 }
 
 function insideKraj(point) {
+    // each crossing flips inside/outside
     let inside = false;
     for (let i = 0, j = krajBorder.length - 1; i < krajBorder.length; j = i++) {
         const a = krajBorder[i];
         const b = krajBorder[j];
-        if ((a[0] > point.lat) !== (b[0] > point.lat) && point.lng < (b[1] - a[1]) * (point.lat - a[0]) / (b[0] - a[0]) + a[1]) {
+        const crossesLatitude = (a[0] > point.lat) !== (b[0] > point.lat);
+        if (!crossesLatitude) continue;
+        const crossingLongitude = (b[1] - a[1]) *
+            (point.lat - a[0]) / (b[0] - a[0]) + a[1];
+        if (point.lng < crossingLongitude) {
             inside = !inside;
         }
     }
@@ -79,7 +84,6 @@ function insideKraj(point) {
 }
 
 map.on("click", (event) => {
-    // ignore map clicks until one of the set buttons is active
     if (!pickMode) return;
     if (!insideKraj(event.latlng)) {
         showError("Choose a point inside Kraj Vysočina.");
@@ -130,6 +134,7 @@ async function exportRoute(route) {
         const data = await response.json();
         throw new Error(data.error || "GPX export failed");
     }
+    // temporary link for the download
     const blob = await response.blob();
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -144,20 +149,27 @@ function addRouteCard(route, index) {
     card.className = "route-card";
     card.style.setProperty("--route-color", colors[index % colors.length]);
     card.innerHTML = `
-        <div class="stats">
-            <div class="stat"><b>${stats.distance_km} km</b><span>Distance</span></div>
-            <div class="stat"><b>${stats.eta_minutes} min</b><span>ETA</span></div>
-            <div class="stat"><b>+${stats.detour_percent}%</b><span>Detour</span></div>
-            <div class="stat"><b>${stats.twistiness}</b><span>Bends</span></div>
-            <div class="stat"><b>${stats.hilliness}</b><span>Hills</span></div>
-            <div class="stat"><b>${stats.elevation_gain_m} m</b><span>Climb</span></div>
-            <div class="stat"><b>${stats.major_road_percent}%</b><span>Major roads</span></div>
-            <div class="stat"><b>${stats.town_road_percent}%</b><span>Town roads</span></div>
-        </div>
-        <div class="card-actions"><button class="export-button" type="button">GPX</button></div>`;
+        <h3 class="route-title">Route ${index + 1}${index === 0 ? " (fastest)" : ""}</h3>
+        <table class="stats" aria-label="Route ${index + 1} details">
+            <tbody>
+                <tr><th scope="row">Distance</th><td>${stats.distance_km} km</td></tr>
+                <tr><th scope="row">Estimated time</th><td>${stats.eta_minutes} min</td></tr>
+                <tr><th scope="row">Extra time</th><td>+${stats.detour_percent}%</td></tr>
+                <tr><th scope="row">Bends</th><td>${stats.twistiness}</td></tr>
+                <tr><th scope="row">Hills</th><td>${stats.hilliness}</td></tr>
+                <tr><th scope="row">Climb</th><td>${stats.elevation_gain_m} m</td></tr>
+                <tr><th scope="row">Major roads</th><td>${stats.major_road_percent}%</td></tr>
+                <tr><th scope="row">Town roads</th><td>${stats.town_road_percent}%</td></tr>
+            </tbody>
+        </table>
+        <div class="card-actions">
+            <button class="select-button" type="button">Show on map</button>
+            <button class="export-button" type="button">Download GPX</button>
+        </div>`;
     card.addEventListener("click", () => setActiveRoute(index));
-    card.querySelector("button").addEventListener("click", async (event) => {
-        event.stopPropagation();
+    card.querySelector(".select-button").addEventListener("click", () => setActiveRoute(index));
+    card.querySelector(".export-button").addEventListener("click", async (event) => {
+        event.stopPropagation(); // export without selecting the card
         try {
             await exportRoute(route);
         } catch (error) {
@@ -230,14 +242,15 @@ document.querySelectorAll('input[type="range"]').forEach((slider) => {
 });
 
 function readPoly(text) {
-    const answer = [];
+    const coordinates = [];
     const lines = text.trim().split(/\r?\n/);
     for (const line of lines.slice(2)) {
         if (line.trim() === "END") break;
-        const bits = line.trim().split(/\s+/).map(Number);
-        if (bits.length === 2) answer.push([bits[1], bits[0]]);
+        const values = line.trim().split(/\s+/).map(Number);
+        // swap longitude and latitude
+        if (values.length === 2) coordinates.push([values[1], values[0]]);
     }
-    return answer;
+    return coordinates;
 }
 
 fetch("/static/vysocina.poly")
@@ -252,7 +265,7 @@ fetch("/static/vysocina.poly")
         map.setMinZoom(map.getZoom());
 
         const world = [[-90, -180], [-90, 180], [90, 180], [90, -180]];
-        // cover everything outside the supported region
+        // hide the map outside the region
         L.polygon([world, krajBorder], {
             stroke: false,
             fillColor: "#f4f3ee",

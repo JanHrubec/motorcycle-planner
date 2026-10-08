@@ -6,7 +6,7 @@ from route_planner.gpx import make_gpx
 from route_planner.service import RequestError, RouteService, load_graph
 
 
-def create_app(service: RouteService | None = None) -> Flask:
+def create_app(service=None):
     app = Flask(__name__)
     if service is None:
         service = RouteService(load_graph())
@@ -44,7 +44,7 @@ def create_app(service: RouteService | None = None) -> Flask:
         )
 
     @app.errorhandler(RequestError)
-    def request_error(error: RequestError):
+    def request_error(error):
         return jsonify({"error": str(error)}), 400
 
     return app

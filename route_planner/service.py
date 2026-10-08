@@ -1,8 +1,7 @@
-from dataclasses import asdict
 from pathlib import Path
 
 from .graph import RoadGraph
-from .router import MAX_DETOUR, Route, RouteSettings, Router
+from .router import MAX_DETOUR, RouteSettings, Router
 
 
 class RequestError(ValueError):
@@ -19,12 +18,12 @@ def load_graph():
 
 
 def read_number(data, key, low, high):
+    label = key.replace("_", " ").capitalize()
     try:
         value = float(data[key])
     except (KeyError, TypeError, ValueError) as error:
-        raise RequestError(f"{key.replace('_', ' ').capitalize()} must be a number") from error
+        raise RequestError(f"{label} must be a number") from error
     if not low <= value <= high:
-        label = key.replace("_", " ").capitalize()
         raise RequestError(f"{label} must be between {low:g} and {high:g}")
     return value
 
@@ -70,7 +69,7 @@ def serialize_route(route, fastest_eta):
 
 
 class RouteService:
-    def __init__(self, graph) -> None:
+    def __init__(self, graph):
         self.graph = graph
         self.router = Router(graph)
 
@@ -81,7 +80,8 @@ class RouteService:
 
         start_id, start_distance = self.graph.nearest_node(start_lat, start_lon)
         target_id, target_distance = self.graph.nearest_node(target_lat, target_lon)
-        
+
+        # selected points must be within 500 m of a road
         if start_distance > 0.5:
             raise RequestError(
                 f"Start is {start_distance:.1f} km from the supported road network"
@@ -102,15 +102,32 @@ class RouteService:
                 )
             raise RequestError("No permitted route connects these points")
         fastest_eta = min(route.eta_minutes for route in routes)
+        start_node = self.graph.nodes[start_id]
+        target_node = self.graph.nodes[target_id]
         return {
             "routes": [serialize_route(route, fastest_eta) for route in routes],
             "snapped": {
-                "start": asdict(self.graph.nodes[start_id]),
-                "target": asdict(self.graph.nodes[target_id]),
+                "start": {
+                    "id": start_node.id,
+                    "lat": start_node.lat,
+                    "lon": start_node.lon,
+                },
+                "target": {
+                    "id": target_node.id,
+                    "lat": target_node.lat,
+                    "lon": target_node.lon,
+                },
                 "start_distance_km": round(start_distance, 3),
                 "target_distance_km": round(target_distance, 3),
             },
-            "settings": asdict(settings),
+            "settings": {
+                "detour_percent": settings.detour_percent,
+                "curve_preference": settings.curve_preference,
+                "hill_preference": settings.hill_preference,
+                "road_preference": settings.road_preference,
+                "town_preference": settings.town_preference,
+                "avoid_motorways": settings.avoid_motorways,
+            },
         }
 
     def edges_to_coordinates(self, edge_ids):

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 
 from route_planner.osm_import import (

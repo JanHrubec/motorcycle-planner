@@ -1,6 +1,12 @@
 # Motorcycle route planner
 
+A local route planner for motorcycle rides in Kraj Vysočina. It finds the
+fastest route, then looks for alternatives that suit the selected preferences
+without exceeding the maximum detour. Routes can be downloaded as GPX files.
+
 ## Setup
+
+Run these commands from the `implementation` folder.
 
 Python 3.14 was used during development.
 
@@ -17,7 +23,7 @@ and OpenStreetMap tiles need an internet connection.
 
 The application requires `data/graph.pkl.gz`. It can be rebuilt from a
 Geofabrik `.osm.pbf` extract in `data/kraj-vysocina-latest.osm.pbf` and
-SRTM hill data files `.hgt` or `.hgt.gz` files in `data/elevation`:
+SRTM elevation files (`.hgt` or `.hgt.gz`) in `data/elevation`:
 
 ```bash
 python preprocess_osm.py data/kraj-vysocina-latest.osm.pbf --elevation data/elevation
@@ -46,6 +52,9 @@ The included map boundary is Geofabrik's polygon for [Kraj Vysočina](https://do
 
 ## Benchmark
 
+These commands measure route searches between three pairs of towns. The
+`--sweep` option also compares different detour limits.
+
 ```bash
 python benchmark.py
 python benchmark.py --sweep
@@ -54,17 +63,19 @@ python benchmark.py --sweep
 ## Project layout
 
 ```text
-app.py                         flask routes and app factory
+app.py                         Flask endpoints
 main.py                        development entry point
-preprocess_osm.py              pbf preprocessing command
-benchmark.py                   repeatable regional timings
+preprocess_osm.py              builds the road graph from OSM data
+benchmark.py                   measures route search times
 route_planner/
-  graph.py                     graph types, persistence and snapping
-  osm_import.py                osm filtering and feature extraction
-  router.py                    a* and bounded bi-objective search
-  service.py                   validation and response assembly
-  gpx.py                       gpx writer
+  graph.py                     road nodes, edges, saving and point snapping
+  osm_import.py                reads roads and calculates their scores
+  router.py                    A* and route search with time and penalty labels
+  service.py                   checks requests and prepares route results
+  geo.py                       distances and bearings
+  elevation.py                 reads heights from elevation tiles
+  gpx.py                       creates GPX downloads
 templates/index.html           application page
 static/                        map behaviour, boundary and styling
-tests/                         integration tests
+tests/                         automated tests
 ```

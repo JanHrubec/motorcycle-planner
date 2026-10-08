@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import struct
 
 from route_planner.elevation import ElevationTiles

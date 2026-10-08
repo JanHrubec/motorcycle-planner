@@ -13,24 +13,27 @@
         <section class="side-panel">
             <header>
                 <h1>Motorcycle route planner</h1>
+                <p class="instructions">Routes in Kraj Vysočina. Click Set, then choose a point on the map.</p>
             </header>
 
             <section class="point-box" aria-label="Selected points">
                 <div>
                     <span class="dot start-dot"></span>
                     <strong>Start</strong>
-                    <span id="startText">Not selected</span>
+                    <span class="point-text" id="startText">Not selected</span>
                     <button id="startPick" class="pick-button" type="button">Set</button>
                 </div>
                 <div>
                     <span class="dot target-dot"></span>
                     <strong>Destination</strong>
-                    <span id="targetText">Not selected</span>
+                    <span class="point-text" id="targetText">Not selected</span>
                     <button id="targetPick" class="pick-button" type="button">Set</button>
                 </div>
                 <button id="clearButton" class="text-button" type="button">Clear points</button>
             </section>
 
+            <h2>Route preferences</h2>
+            <p class="instructions">Higher values give stronger preferences. Detour is extra time compared with the fastest route.</p>
             <form id="routeForm">
                 <label>
                     <span>Maximum detour <output id="detourOutput">35%</output></span>
@@ -54,17 +57,19 @@
                 </label>
                 <label class="check-row">
                     <input id="motorways" type="checkbox">
-                    <span>No motorways (hard rule)</span>
+                    <span>No motorways</span>
                 </label>
                 <button id="generateButton" class="primary-button" type="submit">Find routes</button>
             </form>
 
             <div id="errorBox" class="error hidden" role="alert"></div>
+            <h2>Routes</h2>
+            <p class="instructions">Results appear below. Bends and hills are scores out of 100.</p>
             <section id="routeCards" class="route-cards" aria-live="polite"></section>
         </section>
         <section class="map-wrap">
             <div id="map" aria-label="Route map"></div>
-            <div id="mapHelp" class="map-help">choose which point to set</div>
+            <div id="mapHelp" class="map-help">Click Set to choose a start or destination</div>
         </section>
     </main>
 

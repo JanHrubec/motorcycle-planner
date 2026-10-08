@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import struct
 
 from route_planner.graph import RoadGraph
@@ -12,7 +10,7 @@ def test_small_osm_file_builds_directed_graph(tmp_path):
     graph = RoadGraph.load(output)
 
     assert report["nodes"] == 5
-    assert report["edges"] == 6  # two two-way segments and two one-way segments
+    assert report["edges"] == 6  # two-way and one-way edges
     assert report["counts"]["excluded_highway"] == 1
     assert report["counts"]["ways_with_parsed_speed"] == 1
     assert report["counts"]["ways_with_speed_fallback"] == 1
@@ -20,7 +18,7 @@ def test_small_osm_file_builds_directed_graph(tmp_path):
     assert all(edge.target != 3 for edge in graph.outgoing(4))
     assert report["main_routing_core_nodes"] == 3
     snapped, _ = graph.nearest_node(49.0101, 15.0199)
-    assert snapped == 3  # nodes 4 and 5 are outside the connected core
+    assert snapped == 3  # disconnected nodes excluded
     assert all(edge.travel_speed_kmh <= edge.speed_limit_kmh for edge in graph.edges.values())
     assert output.exists()
     assert (tmp_path / "graph-report.json").exists()
